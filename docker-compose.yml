@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-backtester}
+      POSTGRES_USER: ${DATABASE_USER:-backtester}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-backtester}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-backtester}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - backtester-net
+
+  backend:
+    build: ./backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-backtester}
+      DATABASE_USER: ${DATABASE_USER:-backtester}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-backtester}
+      INGEST_PROVIDER: ${INGEST_PROVIDER:-stub}
+      ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:-demo}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test:
+        ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - backtester-net
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+    networks:
+      - backtester-net
+
+  adminer:
+    image: adminer:latest
+    profiles: ["debug"]
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+    networks:
+      - backtester-net
+
+volumes:
+  pgdata:
+    name: portfolio-backtester-pgdata
+
+networks:
+  backtester-net:
+    driver: bridge
